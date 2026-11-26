@@ -4,13 +4,14 @@
  */
 package pe.gob.diresajunin.teleatencion.application.service;
 
-import pe.gob.diresajunin.teleatencion.domain.model.Medico;
+import java.util.Optional;
+import pe.gob.diresajunin.teleatencion.domain.model.CiudadanoReniecDTO;
 import pe.gob.diresajunin.teleatencion.domain.model.Paciente;
 import pe.gob.diresajunin.teleatencion.domain.model.Usuario;
+import pe.gob.diresajunin.teleatencion.domain.model.UsuarioFactory;
 import pe.gob.diresajunin.teleatencion.domain.port.in.ValidarIdentidadUseCase;
 import pe.gob.diresajunin.teleatencion.domain.port.out.ReniecSisPort;
 import pe.gob.diresajunin.teleatencion.domain.port.out.UsuarioRepositoryPort;
-
 /**
  *
  * @author HP
@@ -18,44 +19,52 @@ import pe.gob.diresajunin.teleatencion.domain.port.out.UsuarioRepositoryPort;
 public class AutenticacionUsuarioService implements ValidarIdentidadUseCase {
     
     
-    private final UsuarioRepositoryPort usuarioRepository;
+    private final UsuarioRepositoryPort usuarioRepositoryPort;
     private final ReniecSisPort reniecSisPort;
 
-    // Inyección de dependencias por constructor (Arquitectura Hexagonal)
-    public AutenticacionUsuarioService(UsuarioRepositoryPort usuarioRepository, ReniecSisPort reniecSisPort) {
-        this.usuarioRepository = usuarioRepository;
+    public AutenticacionUsuarioService(UsuarioRepositoryPort usuarioRepositoryPort,
+                                       ReniecSisPort reniecSisPort) {
+        this.usuarioRepositoryPort = usuarioRepositoryPort;
         this.reniecSisPort = reniecSisPort;
     }
 
     @Override
     public Usuario autenticarPorDni(String dni) {
-        if (dni == null || !dni.matches("\\d{8}")) {
-            throw new IllegalArgumentException("El DNI debe contener exactamente 8 dígitos numéricos.");
+        if (dni == null || !dni.trim().matches("\\d{8}")) {
+            throw new IllegalArgumentException("DNI inválido: debe ingresar exactamente 8 dígitos numéricos.");
         }
 
-        // 1. Validación externa contra el servicio RENIEC
-        if (!reniecSisPort.validarDniEnReniec(dni)) {
-            throw new IllegalStateException("El DNI " + dni + " no se encuentra válido o activo en RENIEC.");
+        String dniLimpio = dni.trim();
+
+        // 1. Validar identidad y cobertura en tiempo real con RENIEC / SIS
+        CiudadanoReniecDTO datosReniec = reniecSisPort.consultarCiudadanoEnReniec(dniLimpio)
+                .orElseThrow(() -> new SecurityException(
+                        "DNI no encontrado en RENIEC, por favor verifique e intente nuevamente"));
+
+        // 2. Buscar en la base de datos regional DIRESA Junín
+        Optional<Usuario> usuarioExistente = usuarioRepositoryPort.buscarPorDni(dniLimpio);
+        if (usuarioExistente.isPresent()) {
+            Usuario usuario = usuarioExistente.get();
+            usuario.setValidadoReniec(true);
+            return usuario;
         }
 
-        // 2. Búsqueda en la base de datos de DIRESA Junín (SQL Server)
-        Usuario usuario = usuarioRepository.buscarPorDni(dni);
-        if (usuario == null) {
-            throw new IllegalStateException("El ciudadano con DNI " + dni + " no está registrado en la plataforma.");
-        }
+        // 3. Si el ciudadano no está registrado aún en SQL Server, registrarlo automáticamente como Paciente
+        Paciente nuevoPaciente = UsuarioFactory.crearPaciente(
+                null, // El adaptador SQL genera el siguiente correlativo idUsuario (ej. US00005)
+                datosReniec.getDni(),
+                datosReniec.getNombres(),
+                datosReniec.getApellidos(),
+                datosReniec.getCorreo(),
+                datosReniec.getFechaNacimiento(),
+                true,
+                datosReniec.getProvinciaJunin(),
+                datosReniec.getTipoSeguro(),
+                datosReniec.isCoberturaSisActiva()
+        );
 
-        // 3. Reglas específicas según el tipo de usuario (Polimorfismo)
-        if (usuario instanceof Paciente) {
-            Paciente paciente = (Paciente) usuario;
-            boolean sisVigente = reniecSisPort.consultarCoberturaSis(dni);
-            paciente.setCoberturaSisActiva(sisVigente);
-        } else if (usuario instanceof Medico) {
-            Medico medico = (Medico) usuario;
-            if (!medico.esMedicoHabilitado()) {
-                throw new IllegalStateException("El médico Dr(a). " + medico.getApellidos() + " no está habilitado en SUSALUD.");
-            }
-        }
-
-        return usuario;
+        Usuario usuarioGuardado = usuarioRepositoryPort.guardar(nuevoPaciente);
+        usuarioGuardado.setNuevoRegistro(true);
+        return usuarioGuardado;
     }
 }
