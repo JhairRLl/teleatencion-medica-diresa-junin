@@ -4,6 +4,7 @@
  */
 package pe.gob.diresajunin.teleatencion.domain.port.out;
 
+import java.util.Optional;
 import pe.gob.diresajunin.teleatencion.domain.model.Usuario;
 
 /**
@@ -12,7 +13,6 @@ import pe.gob.diresajunin.teleatencion.domain.model.Usuario;
  */
 public interface UsuarioRepositoryPort {
     
-    Usuario buscarPorDni(String dni);
-
-    void guardarUsuario(Usuario usuario);
+    Optional<Usuario> buscarPorDni(String dni);
+    Usuario guardar(Usuario usuario);
 }

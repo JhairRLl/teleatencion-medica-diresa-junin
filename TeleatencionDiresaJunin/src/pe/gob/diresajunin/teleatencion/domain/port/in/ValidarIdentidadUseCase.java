@@ -11,9 +11,5 @@ import pe.gob.diresajunin.teleatencion.domain.model.Usuario;
  * @author HP
  */
 public interface ValidarIdentidadUseCase {
-    /**
-     * Autentica y valida la identidad de un usuario (Paciente o Médico)
-     * mediante su número de DNI de 8 dígitos (HU-01 / RF01).
-     */
     Usuario autenticarPorDni(String dni);
 }

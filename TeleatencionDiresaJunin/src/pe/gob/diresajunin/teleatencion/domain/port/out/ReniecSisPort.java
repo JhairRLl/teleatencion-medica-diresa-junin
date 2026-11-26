@@ -4,13 +4,14 @@
  */
 package pe.gob.diresajunin.teleatencion.domain.port.out;
 
+import java.util.Optional;
+import pe.gob.diresajunin.teleatencion.domain.model.CiudadanoReniecDTO;
+
 /**
  *
  * @author HP
  */
 public interface ReniecSisPort {
     
-    boolean validarDniEnReniec(String dni);
-
-    boolean consultarCoberturaSis(String dni);
+    Optional<CiudadanoReniecDTO> consultarCiudadanoEnReniec(String dni);
 }
